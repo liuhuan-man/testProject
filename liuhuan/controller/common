@@ -1,0 +1,416 @@
+package liuhuan.controller.common;
+
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.lang.reflect.Array;
+import java.math.BigDecimal;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.apache.poi.hssf.usermodel.HSSFWorkbook;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.DataFormat;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+public class ExportExcelUtil {
+	
+	private static final String DRIVER_NAME = "com.mysql.jdbc.Driver";
+	
+	private static final String XLSX = "xlsx";
+	private static final String XLS = "xls";
+
+	/**
+	 * 创建数据库连接
+	 * @param user
+	 * @param password
+	 * @param ip
+	 * @param port
+	 * @param dataBase
+	 * @return
+	 * @throws Exception
+	 */
+	public static Connection getConnection(String user, String password, String ip, Integer port, String dataBase) throws Exception {
+		if (isEmpty(user) || isEmpty(ip) || null == port) {
+			System.out.println("输入信息有误！");
+			return null;
+		}
+		if (null == password) {
+			password = "";
+		}
+		
+		if (null == dataBase) {
+			dataBase = "";
+		}
+		
+		Class.forName(DRIVER_NAME);
+		String url = "jdbc:mysql://" + ip.trim() + ":" + port + "/" + dataBase.trim();
+		Connection connection = DriverManager.getConnection(url, user, password);
+		return connection;
+	}
+	/**
+	 * 判断字符串是否为null
+	 * @param str
+	 * @return
+	 */
+	public static boolean isEmpty(String str) {
+		if (null == str) {
+			return true;
+		} else {
+			return str.trim().isEmpty();
+		}
+	}
+	
+	/**
+	 * 获取对应表的所有字段名
+	 * @param connection
+	 * @param tableName
+	 * @return
+	 * @throws Exception
+	 */
+	public static String[] getTableColumnsNames(Connection connection, String tableName) throws Exception {
+		if (null == connection || isEmpty(tableName)) {
+			return null;
+		}
+		
+		List<Object[]> list = querySqlAsList(connection, "desc " + tableName, null);
+		String[] columnNames = new String[list.size()];
+		int i = 0;
+		for (Object[] os : list) {
+			Array.set(columnNames, i, os[0]);
+			i++;
+		}
+		return columnNames;
+	}
+	
+	/**
+	 * 执行SQL，得到ResultSet结果
+	 * @param connection
+	 * @param sql
+	 * @param conValues
+	 * @return
+	 * @throws SQLException
+	 */
+	public static ResultSet querySqlAsResultSet(Connection connection, String sql, Object[] conValues) throws SQLException {
+		if (null == connection || isEmpty(sql)) {
+			return null;
+		}
+		PreparedStatement preparedStatement = connection.prepareStatement(sql);
+		int i = 1;
+		if (null != conValues)
+			for(Object val : conValues) {
+				preparedStatement.setObject(i, val);
+				i++;
+			}
+		
+		return preparedStatement.executeQuery();
+	}
+	
+	/**
+	 * 执行sql,返回List<Map>结果
+	 * @param connection
+	 * @param sql
+	 * @param conValues
+	 * @return
+	 * @throws SQLException
+	 */
+	public static List<Map<String,Object>> querySqlAsMap(Connection connection, String sql, Object[] conValues) throws SQLException {
+		
+		ResultSet resultSet = querySqlAsResultSet(connection, sql, conValues);
+		ResultSetMetaData metaData = resultSet.getMetaData();
+		int columns = metaData.getColumnCount();
+		List<Map<String,Object>> list = new ArrayList<Map<String,Object>>();
+		if (null != resultSet) {
+			while(resultSet.next()) {
+				Map<String,Object> map = new HashMap<String, Object>();
+				for (int j=1;j<=columns;j++) {
+					String columnsName = metaData.getColumnName(j);
+					map.put(columnsName, resultSet.getObject(j));
+				}
+				list.add(map);
+			}
+		}
+		
+		return list;
+	}
+	
+	/**
+	 * 执行sql,返回List<Object[]>结果
+	 * @param connection
+	 * @param sql
+	 * @param conValues
+	 * @return
+	 * @throws SQLException
+	 */
+	public static List<Object[]> querySqlAsList(Connection connection, String sql, Object[] conValues) throws SQLException {
+		
+		ResultSet resultSet = querySqlAsResultSet(connection, sql, conValues);
+		ResultSetMetaData metaData = resultSet.getMetaData();
+		int columns = metaData.getColumnCount();
+		List<Object[]> list = new ArrayList<Object[]>();
+		if (null != resultSet) {
+			while(resultSet.next()) {
+				Object[] objects = new Object[columns];
+				for (int j=1;j<=columns;j++) {
+					Array.set(objects, j-1, resultSet.getObject(j));
+				}
+				list.add(objects);
+			}
+		}
+		
+		return list;
+	}
+	
+	/**
+	 * 控制台答应所有数据，测试用
+	 * @param list
+	 */
+	public static void listAllDatas(List<Object> list) {
+		for(int i=0;i<list.size();i++) {
+			Object values = list.get(i);
+			if (values instanceof Object[]) {
+				Object[] os = (Object[]) values;
+				for(Object o : os) {
+					System.out.print(o + "\t");
+				}
+			} else if (values instanceof Map) {
+				Map map = (Map) values;
+				for(Object key : map.keySet()) {
+					System.out.print(key + ":" + map.get(key) + "\t");
+				}
+			}
+			System.out.println();
+		}
+	}
+	
+	/**
+	 * 导出指定数据表数据
+	 * @param connection
+	 * @param tableName
+	 * @param outPath
+	 * @param workbook
+	 * @return
+	 * @throws Exception
+	 */
+	public static Workbook exportExcel(Connection connection, String tableName, String outPath, Workbook workbook, String extensions) throws Exception {
+		System.out.println("导出数据库" + connection.getCatalog() + "里面的表格" + tableName + "所有数据到excel---开始");
+		if (null == workbook) {
+			workbook = createWorkbook(outPath, extensions);
+		}
+		Sheet sheet = null;
+		try{
+			sheet = workbook.createSheet(tableName);
+		}catch(Exception e) {
+			System.out.println("表格名称过长："+tableName);
+			String length = String.valueOf(tableName.length());
+			sheet = workbook.createSheet(tableName.substring(0, 30-length.length()) + "_" + length);
+		}
+		
+		int fromRow = 0;
+		int fromCel = 0;
+		
+		String[] columns = getTableColumnsNames(connection, tableName);
+		
+		Map<String,Integer> columnIndex = new HashMap<String, Integer>();
+		Row rowTitle = sheet.createRow(fromRow);
+		for(int i=0;i<columns.length;i++) {
+			Cell cellTitle = rowTitle.createCell(fromCel);
+			cellTitle.setCellValue(columns[i]);
+			columnIndex.put(columns[i], fromCel);
+//			sheet.setColumnWidth(fromCel, getColumnsWidth(columns[i]));
+			sheet.autoSizeColumn(fromCel, true);
+			
+            //自适应宽度  
+//            sheet.autoSizeColumn((short)i);  
+			
+			fromCel++;
+		}
+		fromRow++;
+		
+		List<Map<String,Object>> list = querySqlAsMap(connection, "select * from " + tableName, null);
+		
+		Map<String,CellStyle> styleMap = new HashMap<String, CellStyle>();
+		DataFormat format = workbook.createDataFormat();
+		
+		CellStyle dateStyle = workbook.createCellStyle();
+		dateStyle.setDataFormat(format.getFormat("yyyy/MM/dd HH:mm:ss"));
+		styleMap.put(STYLE__FORMAT_DATE, dateStyle);
+		
+		CellStyle doubleStyle = workbook.createCellStyle();
+		doubleStyle.setDataFormat(format.getFormat("#,##0.00"));
+		styleMap.put(STYLE__FORMAT_DOUBLE, doubleStyle);
+		
+		for(int i=0;i<list.size();i++) {
+			Row row1 = sheet.createRow(fromRow);
+			Map<String,Object> values = list.get(i);
+			for(Object key : values.keySet()) {
+				Cell cell10 = row1.createCell(columnIndex.get(key));
+				setCellValue(values.get(key), cell10, styleMap);
+				
+				//自适应宽度  
+//	            sheet.autoSizeColumn(columnIndex.get(key));  
+				if (null != values.get(key)) {
+					if (cell10.getCellStyle().getIndex() == dateStyle.getIndex()) {
+						sheet.setColumnWidth(columnIndex.get(key), 6000);
+					} else {
+						int newWidth = getColumnsWidth(values.get(key).toString());
+						if (newWidth > sheet.getColumnWidth(columnIndex.get(key))) {
+//							sheet.setColumnWidth(columnIndex.get(key), newWidth);
+							sheet.autoSizeColumn(columnIndex.get(key), true);
+						}
+					}
+				}
+			}
+			fromRow++;
+		}
+		System.out.println("导出数据库" + connection.getCatalog() + "里面的表格" + tableName + "所有数据到excel---结束");
+		return workbook;
+	}
+	
+	public final static String STYLE__FORMAT_DATE = "dateStyle";
+	public final static String STYLE__FORMAT_DOUBLE = "doubleStyle";
+	
+	public static void setCellValue(Object o, Cell cell, Map<String,CellStyle> styleMap) {
+		if (null == o || null == cell) {
+			return;
+		}
+		if (o instanceof Boolean) {
+			cell.setCellValue((Boolean)o);
+			return;
+		}
+		if (o instanceof Calendar) {
+			cell.setCellValue((Calendar)o);
+			cell.setCellStyle(styleMap.get(STYLE__FORMAT_DATE));
+			return;
+		}
+		if (o instanceof Date) {
+			cell.setCellValue((Date)o);
+			cell.setCellStyle(styleMap.get(STYLE__FORMAT_DATE));
+			return;
+		}
+		if (o instanceof Double) {
+			cell.setCellValue((Double)o);
+			cell.setCellStyle(styleMap.get(STYLE__FORMAT_DOUBLE));
+			return;
+		}
+		if (o instanceof String) {
+			cell.setCellValue((String)o);
+			return;
+		}
+		if (o instanceof BigDecimal) {
+			cell.setCellValue(((BigDecimal)o).doubleValue());
+			cell.setCellStyle(styleMap.get(STYLE__FORMAT_DOUBLE));
+			return;
+		}
+		
+		if (o instanceof Integer) {
+			cell.setCellValue((Integer)o);
+			return;
+		}
+		
+		cell.setCellValue(o.toString());
+	}
+	
+	public static Workbook exportExcelAll(Connection connection, String outPath, String extensions) throws Exception {
+		System.out.println("导出数据库" + connection.getCatalog() + "里面的所有数据到excel---开始");
+		List<Object[]> list = querySqlAsList(connection, "show tables;", null);
+		Workbook workbook = createWorkbook(outPath, extensions);
+		for (Object[] os : list) {
+			if (null != os[0] && os[0] instanceof String) {
+				String tableName = (String) os[0];
+				exportExcel(connection, tableName, null, workbook, extensions);
+			}
+		}
+		
+		System.out.println("总共" + list.size() + "个表格！");
+		System.out.println("导出数据库" + connection.getCatalog() + "里面的所有数据到excel---结束");
+		return workbook;
+	}
+	
+	/**
+	 * 创建excel工作表对象
+	 * @param extensions
+	 * @return
+	 * @throws IOException
+	 */
+	public static final Workbook createWorkbook(String filePath, String extensions) throws IOException {
+        if(null == extensions || extensions.trim().isEmpty()) {
+            throw new IllegalArgumentException("参数错误!!!") ;
+        }
+        
+        if(extensions.trim().equalsIgnoreCase("xls")) {
+        	if (null == filePath || filePath.trim().isEmpty())
+        		return new HSSFWorkbook() ;
+        	else
+        		return new HSSFWorkbook(new FileInputStream(filePath)) ;
+        } else if(extensions.trim().equalsIgnoreCase("xlsx")) {
+        	if (null == filePath || filePath.trim().isEmpty())
+        		return new XSSFWorkbook() ;
+        	else
+        		return new XSSFWorkbook(new FileInputStream(filePath)) ;
+        } else {
+            throw new IllegalArgumentException("不支持除：xls/xlsx以外的文件格式!!!") ;
+        }
+        
+    }
+	
+	public static void printExcel(String outPath, Workbook workbook) throws Exception {
+		OutputStream out = new FileOutputStream(outPath);
+		workbook.write(out);
+		out.close();
+	}
+	
+	public static int getColumnsWidth(String str) {
+		if (null == str) {
+			return 4000;
+		}
+		int width = str.toString().getBytes().length;
+		if (width > 255) {
+			return 255;
+		}
+		
+		return width;
+	}
+	
+	public static void main(String[] args){
+		Connection connection = null;
+		try{
+			System.out.println("开始执行,导出数据表到excel");
+			connection = getConnection("root", "root", "192.168.30.121", 3306, null);
+			connection.setCatalog("kmail");
+			
+//			Workbook workbook = exportExcel(connection, "lc_transaction", null, null, XLSX);
+			Workbook workbook = exportExcelAll(connection, null, XLS);
+			printExcel("C:\\Users\\c571\\Desktop\\1.xls", workbook);
+			System.gc();
+			System.out.println("执行完毕");
+		}catch(Exception e) {
+			System.out.println("执行错误");
+			e.printStackTrace();
+		} finally {
+			try {
+				if (null != connection && !connection.isClosed()) {
+					connection.close();
+				}
+			} catch (SQLException e) {
+				e.printStackTrace();
+			}
+		}
+	}
+	
+}
